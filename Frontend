@@ -1,0 +1,145 @@
+// app/page.tsx
+'use client';
+
+import React, { useEffect, useRef, useState } from 'react';
+
+export default function TradingDashboard() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [ticker, setTicker] = useState('NASDAQ:AAPL');
+  const [analysis, setAnalysis] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Load TradingView Advanced Real-Time Widget dynamically
+  useEffect(() => {
+    if (!containerRef.current) return;
+    containerRef.current.innerHTML = '';
+
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+    script.type = 'text/javascript';
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      width: '100%',
+      height: '600',
+      symbol: ticker,
+      interval: 'D',
+      timezone: 'Etc/UTC',
+      theme: 'dark',
+      style: '1',
+      locale: 'en',
+      allow_symbol_change: true,
+      calendar: false,
+      support_host: 'https://www.tradingview.com',
+    });
+
+    containerRef.current.appendChild(script);
+  }, [ticker]);
+
+  const handleRunAnalysis = async () => {
+    setLoading(true);
+    try {
+      const cleanTicker = ticker.includes(':') ? ticker.split(':')[1] : ticker;
+      const response = await fetch('http://localhost:8000/api/analyze-trade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticker: cleanTicker,
+          timeframe: '1D',
+          current_price: 185.50,
+          indicators: { rsi: 58.4, macd: 'bullish_crossover', sma_200: 'above' }
+        }),
+      });
+      const data = await response.json();
+      setAnalysis(data);
+    } catch (err) {
+      console.error('Analysis failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <main className="min-h-screen bg-slate-950 text-slate-100 p-6 flex flex-col gap-6">
+      <header className="flex justify-between items-center border-b border-slate-800 pb-4">
+        <h1 className="text-2xl font-bold tracking-tight">AI Trading Terminal & Knowledge Synthesizer</h1>
+        <div className="flex gap-3">
+          <input 
+            type="text" 
+            value={ticker} 
+            onChange={(e) => setTicker(e.target.value)}
+            className="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+            placeholder="e.g. NASDAQ:TSLA"
+          />
+          <button 
+            onClick={handleRunAnalysis}
+            disabled={loading}
+            className="bg-blue-600 hover:bg-blue-500 transition px-4 py-1.5 rounded-lg text-sm font-medium disabled:opacity-50"
+          >
+            {loading ? 'Analyzing Web & Charts...' : 'Run AI Trade Thesis'}
+          </button>
+        </div>
+      </header>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* TradingView Widget Container */}
+        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl overflow-hidden p-2">
+          <div ref={containerRef} className="tradingview-widget-container" style={{ height: '600px', width: '100%' }} />
+        </div>
+
+        {/* AI Trade Insights Panel */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+          <div>
+            <h2 className="text-lg font-semibold mb-3 border-b border-slate-800 pb-2">Intelligence Synthesis</h2>
+            {analysis ? (
+              <div className="space-y-4 text-sm">
+                <div className="flex justify-between items-center bg-slate-950 p-3 rounded-lg border border-slate-800">
+                  <span className="font-medium text-slate-400">Verdict</span>
+                  <span className={`px-2.5 py-1 rounded font-bold text-xs ${
+                    analysis.verdict === 'BUY' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                  }`}>
+                    {analysis.verdict} ({Math.round(analysis.confidence_score * 100)}% Confidence)
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-1">Internet & News Sentiment</h3>
+                  <p className="text-slate-300 leading-relaxed bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs">{analysis.sentiment_summary}</p>
+                </div>
+
+                <div>
+                  <h3 className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-1">Technical Overlay</h3>
+                  <p className="text-slate-300 leading-relaxed bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs">{analysis.technical_summary}</p>
+                </div>
+
+                <div>
+                  <h3 className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-1">Actionable Levels</h3>
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs bg-slate-950 p-3 rounded-lg border border-slate-800">
+                    <div>
+                      <span className="block text-slate-500">Entry</span>
+                      <span className="font-semibold text-slate-200">${analysis.actionable_levels.entry_price}</span>
+                    </div>
+                    <div>
+                      <span className="block text-slate-500">Stop Loss</span>
+                      <span className="font-semibold text-rose-400">${analysis.actionable_levels.stop_loss}</span>
+                    </div>
+                    <div>
+                      <span className="block text-slate-500">Take Profit</span>
+                      <span className="font-semibold text-emerald-400">${analysis.actionable_levels.take_profit}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center text-slate-500 py-24 text-sm">
+                Select a asset ticker and run the analysis engine to aggregate live internet intelligence and technical indicators.
+              </div>
+            )}
+          </div>
+          <div className="text-[10px] text-slate-500 text-center border-t border-slate-800 pt-3">
+            Disclaimer: AI-generated trade hypotheses are for informational purposes and do not constitute financial advice.
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
