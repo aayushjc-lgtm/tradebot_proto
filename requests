@@ -1,0 +1,76 @@
+import os
+import requests
+
+# 1. Mandatory SEC User-Agent header (Format: "Sample Company Name AdminContact@<sample company domain>.com")
+HEADERS = {
+    "User-Agent": "InstitutionalAnalytics ResearchBot admin@quantresearch.io"
+}
+
+def get_cik_from_ticker(ticker: str) -> str:
+    """Fetch the official 10-digit zero-padded CIK number for a given ticker."""
+    url = "https://www.sec.gov/files/company_tickers.json"
+    response = requests.get(url, headers=HEADERS)
+    response.raise_for_status()
+    
+    data = response.json()
+    ticker_upper = ticker.upper()
+    
+    for entry in data.values():
+        if entry["ticker"] == ticker_upper:
+            # SEC submission endpoint requires a 10-digit zero-padded CIK string
+            return str(entry["cik_str"]).zfill(10)
+            
+    raise ValueError(f"Ticker '{ticker}' not found in SEC database.")
+
+def fetch_latest_10k(ticker: str, output_dir: str = "./sec_filings"):
+    """Downloads the primary document of the most recent 10-K filing for a company."""
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Step A: Get CIK
+    cik = get_cik_from_ticker(ticker)
+    print(f"Resolved {ticker} to CIK: {cik}")
+    
+    # Step B: Get company submission JSON history
+    submissions_url = f"https://data.sec.gov/submissions/CIK{cik}.json"
+    response = requests.get(submissions_url, headers=HEADERS)
+    response.raise_for_status()
+    sub_data = response.json()
+    
+    recent_filings = sub_data["filings"]["recent"]
+    
+    # Step C: Iterate through filings to find the most recent 10-K
+    target_index = None
+    for i, form_type in enumerate(recent_filings["form"]):
+        if form_type == "10-K":
+            target_index = i
+            break
+            
+    if target_index is None:
+        raise RuntimeError(f"No 10-K filings found in the recent history for {ticker}.")
+        
+    accession_number = recent_filings["accessionNumber"][target_index]
+    primary_document = recent_filings["primaryDocument"][target_index]
+    filing_date = recent_filings["filingDate"][target_index]
+    
+    # Remove hyphens from accession number to construct the proper archive folder path
+    accession_no_hyphen = accession_number.replace("-", "")
+    
+    # Step D: Construct the direct URL to the primary 10-K document (usually HTML/XML)
+    doc_url = f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/{accession_no_hyphen}/{primary_document}"
+    
+    print(f"Downloading 10-K filed on {filing_date} from: {doc_url}")
+    
+    # Step E: Download and save the filing file
+    doc_response = requests.get(doc_url, headers=HEADERS)
+    doc_response.raise_for_status()
+    
+    file_path = os.path.join(output_dir, f"{ticker}_10K_{filing_date}.html")
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(doc_response.text)
+        
+    print(f"Successfully saved 10-K to {file_path}")
+    return file_path
+
+if __name__ == "__main__":
+    # Example execution for Apple (AAPL)
+    fetch_latest_10k("AAPL")
