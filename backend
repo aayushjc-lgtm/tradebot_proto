@@ -1,0 +1,93 @@
+# main.py
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
+import os
+import httpx
+from typing import List, Optional
+
+app = FastAPI(title="AI Trading Intelligence Engine", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class TradeAnalysisRequest(BaseModel):
+    ticker: str = Field(..., example="AAPL")
+    timeframe: str = Field(..., example="1D")
+    current_price: float = Field(..., example=185.50)
+    indicators: dict = Field(..., example={"rsi": 58.4, "macd": "bullish_crossover", "sma_200": "above"})
+
+class TradeThesisResponse(BaseModel):
+    ticker: str
+    verdict: str = Field(..., description="BUY, SELL, or HOLD")
+    confidence_score: float = Field(..., ge=0.0, le=1.0)
+    sentiment_summary: str
+    technical_summary: str
+    risk_factors: List[str]
+    actionable_levels: dict
+
+async def fetch_internet_knowledge(ticker: str) -> str:
+    """
+    Fetches real-time financial news and internet sentiment using a search/news API.
+    Replace with your Tavily, NewsAPI, or Bloomberg/AlphaVantage endpoint.
+    """
+    api_key = os.getenv("NEWS_API_KEY", "mock_key")
+    url = f"https://newsapi.org/v2/everything?q={ticker}+stock+market+news&sortBy=publishedAt&pageSize=5&apiKey={api_key}"
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=5.0)
+            if response.status_code == 200:
+                articles = response.json().get("articles", [])
+                summaries = [f"- {a['title']}: {a['description']}" for a in articles if a.get('description')]
+                return "\n".join(summaries) if summaries else "No recent breaking news found."
+        except Exception:
+            pass
+    return "Fallback: Market sentiment is neutral based on historical baseline data."
+
+@app.post("/api/analyze-trade", response_model=TradeThesisResponse)
+async def analyze_trade(payload: TradeAnalysisRequest):
+    # 1. Gather external internet knowledge concurrently
+    internet_news = await fetch_internet_knowledge(payload.ticker)
+    
+    # 2. Construct the analytical context for the decision engine
+    prompt_context = f"""
+    Analyze the trade setup for {payload.ticker} on timeframe {payload.timeframe}.
+    Current Price: ${payload.current_price}
+    Technical Indicators: {payload.indicators}
+    
+    Recent Internet Knowledge & Sentiment:
+    {internet_news}
+    
+    Task: Provide a rigorous institutional-grade trading evaluation. Factor in macro sentiment, news catalysts, and technical alignment.
+    """
+    
+    # 3. Decision Engine Logic (Simulating deep reasoning output matching schema)
+    # In production, route `prompt_context` to an LLM provider using structured JSON outputs.
+    analysis_result = TradeThesisResponse(
+        ticker=payload.ticker,
+        verdict="BUY" if payload.indicators.get("rsi", 50) < 65 else "HOLD",
+        confidence_score=0.82,
+        sentiment_summary="Recent institutional earnings reports and sector momentum lean positive, though macro inflation data introduces minor short-term volatility.",
+        technical_summary=f"Price is holding above key moving averages with RSI at {payload.indicators.get('rsi')}, showing healthy momentum without overextension.",
+        risk_factors=[
+            "Upcoming FOMC rate decision mid-week",
+            "Resistance level approaching 3% above current price"
+        ],
+        actionable_levels={
+            "entry_price": payload.current_price,
+            "stop_loss": round(payload.current_price * 0.97, 2),
+            "take_profit": round(payload.current_price * 1.06, 2)
+        }
+    )
+    
+    return analysis_result
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
